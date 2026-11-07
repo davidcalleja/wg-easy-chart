@@ -1,0 +1,61 @@
+{{- if not .Values.hostNetwork }}
+{{- $svc := .Values.service.wireguard }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "wg-easy.fullname" . }}-wireguard
+  labels:
+    {{- include "wg-easy.labels" . | nindent 4 }}
+  {{- with $svc.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if and (eq $svc.type "LoadBalancer") $svc.loadBalancerIP }}
+  loadBalancerIP: {{ $svc.loadBalancerIP }}
+  {{- end }}
+  {{- if and (eq $svc.type "LoadBalancer") $svc.loadBalancerClass }}
+  loadBalancerClass: {{ $svc.loadBalancerClass }}
+  {{- end }}
+  {{- if and (has $svc.type (list "LoadBalancer" "NodePort")) $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  selector:
+    {{- include "wg-easy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: wireguard
+      port: {{ .Values.wireguard.port }}
+      targetPort: wireguard
+      protocol: UDP
+      {{- if and (has $svc.type (list "LoadBalancer" "NodePort")) $svc.nodePort }}
+      nodePort: {{ $svc.nodePort }}
+      {{- end }}
+---
+{{- end }}
+{{- $web := .Values.service.web }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "wg-easy.fullname" . }}-web
+  labels:
+    {{- include "wg-easy.labels" . | nindent 4 }}
+  {{- with $web.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $web.type }}
+  {{- if and (eq $web.type "LoadBalancer") $web.loadBalancerIP }}
+  loadBalancerIP: {{ $web.loadBalancerIP }}
+  {{- end }}
+  selector:
+    {{- include "wg-easy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $web.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (has $web.type (list "LoadBalancer" "NodePort")) $web.nodePort }}
+      nodePort: {{ $web.nodePort }}
+      {{- end }}

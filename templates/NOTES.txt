@@ -1,0 +1,22 @@
+wg-easy {{ default .Chart.AppVersion .Values.image.tag }} is deploying in namespace {{ .Release.Namespace }}.
+
+Web UI:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "wg-easy.fullname" . }}-web {{ .Values.service.web.port }}:{{ .Values.service.web.port }}
+  then open http://127.0.0.1:{{ .Values.service.web.port }}
+{{- end }}
+{{- if not .Values.init.enabled }}
+  The first visit opens the setup wizard: create the admin account there.
+{{- end }}
+
+WireGuard (UDP {{ .Values.wireguard.port }}):
+{{- if .Values.hostNetwork }}
+  Listening on the node's own network.
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "wg-easy.fullname" . }}-wireguard
+{{- end }}
+  The host/port configured in wg-easy must reach this UDP port from the internet.

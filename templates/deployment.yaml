@@ -1,0 +1,194 @@
+{{- include "wg-easy.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wg-easy.fullname" . }}
+  labels:
+    {{- include "wg-easy.labels" . | nindent 4 }}
+spec:
+  # WireGuard state lives on a RWO volume: never run two pods at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "wg-easy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if and .Values.init.enabled (not .Values.init.existingSecret) }}
+        checksum/init-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "wg-easy.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- if or .Values.podSecurityContext (eq .Values.sysctls.mode "securityContext") }}
+      securityContext:
+        {{- with .Values.podSecurityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if eq .Values.sysctls.mode "securityContext" }}
+        sysctls:
+          - name: net.ipv4.ip_forward
+            value: "1"
+          - name: net.ipv4.conf.all.src_valid_mark
+            value: "1"
+          {{- if not .Values.disableIPv6 }}
+          - name: net.ipv6.conf.all.disable_ipv6
+            value: "0"
+          - name: net.ipv6.conf.all.forwarding
+            value: "1"
+          - name: net.ipv6.conf.default.forwarding
+            value: "1"
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if eq .Values.sysctls.mode "initContainer" }}
+      initContainers:
+        - name: sysctls
+          image: "{{ .Values.sysctls.image.repository }}:{{ .Values.sysctls.image.tag }}"
+          imagePullPolicy: {{ .Values.sysctls.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          command:
+            - sh
+            - -ec
+            - |
+              sysctl -w net.ipv4.ip_forward=1
+              sysctl -w net.ipv4.conf.all.src_valid_mark=1
+              {{- if not .Values.disableIPv6 }}
+              sysctl -w net.ipv6.conf.all.disable_ipv6=0
+              sysctl -w net.ipv6.conf.all.forwarding=1
+              sysctl -w net.ipv6.conf.default.forwarding=1
+              {{- end }}
+      {{- end }}
+      containers:
+        - name: wg-easy
+          image: {{ include "wg-easy.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: PORT
+              value: {{ .Values.web.port | quote }}
+            - name: HOST
+              value: {{ .Values.web.host | quote }}
+            - name: INSECURE
+              value: {{ .Values.web.insecure | quote }}
+            - name: DISABLE_IPV6
+              value: {{ .Values.disableIPv6 | quote }}
+            {{- with .Values.debug }}
+            - name: DEBUG
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.init.enabled }}
+            - name: INIT_ENABLED
+              value: "true"
+            - name: INIT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wg-easy.initSecretName" . }}
+                  key: {{ .Values.init.usernameKey }}
+            - name: INIT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wg-easy.initSecretName" . }}
+                  key: {{ .Values.init.passwordKey }}
+            - name: INIT_HOST
+              value: {{ .Values.init.host | quote }}
+            - name: INIT_PORT
+              value: {{ .Values.wireguard.port | quote }}
+            {{- with .Values.init.dns }}
+            - name: INIT_DNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.init.ipv4Cidr }}
+            - name: INIT_IPV4_CIDR
+              value: {{ .Values.init.ipv4Cidr | quote }}
+            - name: INIT_IPV6_CIDR
+              value: {{ .Values.init.ipv6Cidr | quote }}
+            {{- end }}
+            {{- with .Values.init.allowedIps }}
+            - name: INIT_ALLOWED_IPS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: wireguard
+              containerPort: {{ .Values.wireguard.port }}
+              protocol: UDP
+            - name: http
+              containerPort: {{ .Values.web.port }}
+              protocol: TCP
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /etc/wireguard
+            {{- if .Values.hostModules.enabled }}
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "wg-easy.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.hostModules.enabled }}
+        - name: modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
