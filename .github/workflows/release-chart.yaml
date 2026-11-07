@@ -18,10 +18,10 @@ permissions:
 env:
   CHART_DIR: .          # <-- path to your chart in this repo
   IMAGE_TAG_PATH: .image.tag       # <-- where the tag lives in values.yaml
-  IMAGE: ghcr.io/wg-easy/wg-easy:edge   # <-- image to check on scheduled runs (no tag)
+  IMAGE: ghcr.io/wg-easy/wg-easy   # <-- image to check on scheduled runs (no tag)
   # Which registry tags count as releases. docker-airnavradar publishes
   # tags like "latest-build-897"; for semver images use '^v?[0-9]+\.[0-9]+\.[0-9]+$'
-  TAG_REGEX: '^latest-build-[0-9]+$'
+  TAG_REGEX: '^[0-9]+\.[0-9]+\.[0-9]+$'
 
 jobs:
   release:
