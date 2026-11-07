@@ -1,0 +1,117 @@
+name: Release Helm chart
+
+on:
+  repository_dispatch:
+    types: [image-updated]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "New Docker image tag (leave empty to use the latest in the registry)"
+        required: false
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: write   # commit, tag, release
+  packages: write   # push chart to ghcr.io
+
+env:
+  CHART_DIR: .          # <-- path to your chart in this repo
+  IMAGE_TAG_PATH: .image.tag       # <-- where the tag lives in values.yaml
+  IMAGE: ghcr.io/wg-easy/wg-easy   # <-- image to check on scheduled runs (no tag)
+  # Which registry tags count as releases. docker-airnavradar publishes
+  # tags like "latest-build-897"; for semver images use '^v?[0-9]+\.[0-9]+\.[0-9]+$'
+  TAG_REGEX: '^latest-build-[0-9]+$'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency: release-chart     # avoid two releases racing each other
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Read new image tag
+        env:
+          TAG_DISPATCH: ${{ github.event.client_payload.image_tag }}
+          TAG_MANUAL: ${{ inputs.image_tag }}
+          # Only needed if the image is private:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          TAG="${TAG_DISPATCH:-$TAG_MANUAL}"
+
+          # Scheduled run (or manual run without a tag): find the newest
+          # tag matching TAG_REGEX in the registry.
+          if [[ -z "$TAG" ]]; then
+            CREDS=()
+            [[ -n "$REGISTRY_USER" ]] && CREDS=(--creds "$REGISTRY_USER:$REGISTRY_PASSWORD")
+            TAG=$(skopeo list-tags "${CREDS[@]}" "docker://$IMAGE" \
+                  | jq -r '.Tags[]' \
+                  | grep -E "$TAG_REGEX" \
+                  | sort -V | tail -1 || true)
+            if [[ -z "$TAG" ]]; then
+              echo "No tag in $IMAGE matches $TAG_REGEX"; exit 1
+            fi
+            echo "Latest tag in registry: $TAG"
+          fi
+
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid image tag: '$TAG'"; exit 1
+          fi
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+      - name: Update chart files
+        id: bump
+        run: |
+          CURRENT=$(yq '.appVersion' "$CHART_DIR/Chart.yaml")
+          if [[ "$CURRENT" == "$IMAGE_TAG" ]]; then
+            echo "appVersion already $IMAGE_TAG, nothing to release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # yq (mikefarah) is preinstalled on GitHub's ubuntu runners
+          yq -i "${IMAGE_TAG_PATH} = strenv(IMAGE_TAG)" "$CHART_DIR/values.yaml"
+          yq -i '.appVersion = strenv(IMAGE_TAG)'       "$CHART_DIR/Chart.yaml"
+
+          OLD=$(yq '.version' "$CHART_DIR/Chart.yaml")
+          NEW=$(echo "$OLD" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
+          NEW="$NEW" yq -i '.version = strenv(NEW)' "$CHART_DIR/Chart.yaml"
+
+          NAME=$(yq '.name' "$CHART_DIR/Chart.yaml")
+          echo "Chart $NAME: $OLD -> $NEW (image $IMAGE_TAG)"
+          echo "changed=true"   >> "$GITHUB_OUTPUT"
+          echo "version=$NEW"   >> "$GITHUB_OUTPUT"
+          echo "name=$NAME"     >> "$GITHUB_OUTPUT"
+      - name: Lint chart
+        if: steps.bump.outputs.changed == 'true'
+        run: helm lint "$CHART_DIR"
+      - name: Commit and tag
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          NAME: ${{ steps.bump.outputs.name }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(${NAME}): release chart ${VERSION} with image ${IMAGE_TAG}"
+          git tag "${NAME}-${VERSION}"
+          git push origin HEAD --tags
+      - name: Package and push to GHCR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm package "$CHART_DIR" -d dist
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push dist/*.tgz "oci://ghcr.io/${OWNER}/charts"
+      - name: Create GitHub Release
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          NAME: ${{ steps.bump.outputs.name }}
+        run: |
+          gh release create "${NAME}-${VERSION}" dist/*.tgz \
+            --title "${NAME} ${VERSION}" \
+            --notes "Chart ${VERSION} — image tag \`${IMAGE_TAG}\`"
