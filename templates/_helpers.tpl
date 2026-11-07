@@ -27,8 +27,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "wg-easy.labels" -}}
 helm.sh/chart: {{ include "wg-easy.chart" . }}
 {{ include "wg-easy.selectorLabels" . }}
-app.kubernetes.io/version: {{ (default .Chart.AppVersion .Values.image.tag) | quote }}
+{{- with include "wg-easy.versionLabel" . }}
+app.kubernetes.io/version: {{ . | quote }}
+{{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/* Label-safe version: invalid chars -> "_", max 63, must start/end alphanumeric. */}}
+{{- define "wg-easy.versionLabel" -}}
+{{- regexReplaceAll "[^A-Za-z0-9._-]" (toString (default .Chart.AppVersion .Values.image.tag)) "_" | trunc 63 | trimAll "_.-" }}
 {{- end }}
 
 {{- define "wg-easy.image" -}}
