@@ -2,14 +2,12 @@
 # image only changes when you change it.
 image:
   repository: ghcr.io/wg-easy/wg-easy
-  tag: ""
+  tag: "15.5.0"
   digest: ""
   pullPolicy: IfNotPresent
-
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
-
 # -- Web UI / app settings (wg-easy v15 env vars).
 web:
   # Port the web UI listens on inside the pod (PORT).
@@ -17,19 +15,15 @@ web:
   # Bind address (HOST).
   host: "0.0.0.0"
   insecure: true
-
 # Disable IPv6 inside WireGuard (DISABLE_IPV6). Most clusters have no pod IPv6.
 disableIPv6: true
-
 # Debug namespaces, e.g. "Server,WireGuard,Database,CMD". Empty = off.
 debug: ""
-
 # -- WireGuard UDP port. Used as INIT_PORT, the container port and the Service
 # port, because wg-easy listens on the same port it tells clients to use.
 # If you later change the port in the web UI, change it here too.
 wireguard:
   port: 51820
-
 # -- Unattended first-run setup (INIT_* env vars). Only applied on the very
 # first start (empty database); afterwards everything lives in the web UI.
 init:
@@ -45,11 +39,10 @@ init:
   passwordKey: password
   # Optional groups. Group rules from upstream: ipv4Cidr and ipv6Cidr must be
   # set together.
-  dns: ""          # e.g. "1.1.1.1,8.8.8.8"
-  ipv4Cidr: ""     # e.g. "10.8.0.0/24"
-  ipv6Cidr: ""     # e.g. "fdcc:ad94:bacf:61a4::cafe:0/112"
-  allowedIps: ""   # e.g. "0.0.0.0/0,::/0"
-
+  dns: "" # e.g. "1.1.1.1,8.8.8.8"
+  ipv4Cidr: "" # e.g. "10.8.0.0/24"
+  ipv6Cidr: "" # e.g. "fdcc:ad94:bacf:61a4::cafe:0/112"
+  allowedIps: "" # e.g. "0.0.0.0/0,::/0"
 extraEnv: []
 #  - name: SOME_VAR
 #    value: "x"
@@ -67,30 +60,25 @@ sysctls:
     repository: docker.io/library/busybox
     tag: "1.37"
     pullPolicy: IfNotPresent
-
 # Mount the host's /lib/modules read-only so the container can load the
 # wireguard module if it isn't loaded yet (mirrors upstream compose).
 hostModules:
   enabled: true
-
 securityContext:
   capabilities:
     add:
       - NET_ADMIN
       - SYS_MODULE
       # - NET_RAW
-
 podSecurityContext: {}
-
 persistence:
   enabled: true
   existingClaim: ""
-  storageClass: ""     # "" = cluster default, "-" = no storageClassName
+  storageClass: "" # "" = cluster default, "-" = no storageClassName
   accessModes:
     - ReadWriteOnce
   size: 256Mi
   annotations: {}
-
 # -- UDP Service for WireGuard traffic.
 service:
   wireguard:
@@ -110,7 +98,6 @@ service:
     port: 51821
     loadBalancerIP: ""
     nodePort: ""
-
 probes:
   liveness:
     enabled: true
@@ -120,21 +107,18 @@ probes:
     enabled: true
     initialDelaySeconds: 5
     periodSeconds: 10
-
 resources:
   requests:
     cpu: 50m
     memory: 64Mi
   limits:
     memory: 256Mi
-
 podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
 priorityClassName: ""
-
 # Run in the host network namespace instead of using the UDP Service.
 # Pin the pod to a node with nodeSelector when you use this.
 hostNetwork: false

@@ -2,8 +2,8 @@ apiVersion: v2
 name: wg-easy
 description: WireGuard VPN with a web admin UI (wg-easy v15)
 type: application
-version: 0.1.0
-appVersion: "15.4.0"
+version: 0.1.1
+appVersion: "15.5.0"
 home: https://github.com/wg-easy/wg-easy
 sources:
   - https://github.com/wg-easy/wg-easy
