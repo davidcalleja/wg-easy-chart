@@ -74,7 +74,7 @@ podSecurityContext: {}
 persistence:
   enabled: true
   existingClaim: ""
-  storageClass: "" # "" = cluster default, "-" = no storageClassName
+  storageClass: "ceph-block"
   accessModes:
     - ReadWriteOnce
   size: 256Mi
